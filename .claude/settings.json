@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Read", "Edit",
+      "Bash(php artisan test)"
+    ],
+    "ask": [
+      "Bash(git push:*)", "Bash(git commit:*)",
+      "Bash(composer install)",
+      "Bash(npm install)"
+    ],
+    "deny": [
+      "Read(./.env*)", "Read(./secrets/**)",
+      "Read(~/.ssh/**)", "Read(~/.aws/**)", "Read(~/.gnupg/**)",
+      "Bash(curl:*)", "Bash(wget:*)",
+      "Bash(rm -rf:*)",
+      "WebFetch"
+    ],
+    "defaultMode": "plan",
+    "disableBypassPermissionsMode": "disable"
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true
+  }
+}
