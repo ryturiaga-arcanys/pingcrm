@@ -179,6 +179,30 @@ class ContactsTest extends TestCase
         $this->assertSame('Martin', $rows[1][0]);
     }
 
+    public function test_export_search_matches_email(): void
+    {
+        $rows = $this->csvRows($this->actingAs($this->user)->get('/contacts/export?search=lynn.kub@example.com'));
+
+        $this->assertCount(2, $rows);
+        $this->assertSame('Lynn', $rows[1][0]);
+    }
+
+    public function test_export_search_matches_organization_name(): void
+    {
+        $otherOrganization = $this->user->account->organizations()->create(['name' => 'Globex Corporation']);
+        $this->user->account->contacts()->create([
+            'organization_id' => $otherOrganization->id,
+            'first_name' => 'Hank',
+            'last_name' => 'Scorpio',
+            'email' => 'hank.scorpio@example.com',
+        ]);
+
+        $rows = $this->csvRows($this->actingAs($this->user)->get('/contacts/export?search=Globex'));
+
+        $this->assertCount(2, $rows);
+        $this->assertSame('Hank', $rows[1][0]);
+    }
+
     public function test_export_excludes_trashed_contacts_by_default(): void
     {
         $this->user->account->contacts()->firstWhere('first_name', 'Martin')->delete();
@@ -197,6 +221,16 @@ class ContactsTest extends TestCase
 
         $this->assertCount(2, $rows);
         $this->assertSame('Martin', $rows[1][0]);
+    }
+
+    public function test_export_includes_all_contacts_with_trashed_filter(): void
+    {
+        $this->user->account->contacts()->firstWhere('first_name', 'Martin')->delete();
+
+        $rows = $this->csvRows($this->actingAs($this->user)->get('/contacts/export?trashed=with'));
+
+        $this->assertCount(3, $rows);
+        $this->assertSame(['Martin', 'Lynn'], [$rows[1][0], $rows[2][0]]);
     }
 
     public function test_export_does_not_include_contacts_from_other_accounts(): void
@@ -224,10 +258,50 @@ class ContactsTest extends TestCase
         $this->assertCount(18, $rows);
     }
 
+    public function test_export_escapes_formula_injection_in_fields(): void
+    {
+        $this->user->account->contacts()->create([
+            'first_name' => '=cmd|\'/c calc\'!A1',
+            'last_name' => '+Danger',
+            'email' => 'formula@example.com',
+        ]);
+
+        $rows = $this->csvRows($this->actingAs($this->user)->get('/contacts/export?search=formula'));
+
+        $this->assertCount(2, $rows);
+        $this->assertStringStartsWith("'=", $rows[1][0]);
+        $this->assertStringStartsWith("'+", $rows[1][1]);
+    }
+
+    public function test_export_correctly_escapes_fields_with_commas_and_quotes(): void
+    {
+        $this->user->account->contacts()->create([
+            'first_name' => 'Comma',
+            'last_name' => 'Test',
+            'email' => 'comma.test@example.com',
+            'address' => '123 Main St, Apt "4"',
+        ]);
+
+        $rows = $this->csvRows($this->actingAs($this->user)->get('/contacts/export?search=Comma'));
+
+        $this->assertCount(2, $rows);
+        $this->assertSame('123 Main St, Apt "4"', $rows[1][4]);
+    }
+
     private function csvRows($response): array
     {
-        $lines = array_filter(explode("\n", trim($response->streamedContent())));
+        $stream = fopen('php://temp', 'r+');
+        fwrite($stream, $response->streamedContent());
+        rewind($stream);
 
-        return array_map('str_getcsv', $lines);
+        $rows = [];
+
+        while (($row = fgetcsv($stream)) !== false) {
+            $rows[] = $row;
+        }
+
+        fclose($stream);
+
+        return $rows;
     }
 }
