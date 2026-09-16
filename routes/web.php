@@ -109,6 +109,10 @@ Route::get('contacts/create', [ContactsController::class, 'create'])
     ->name('contacts.create')
     ->middleware('auth');
 
+Route::get('contacts/export', [ContactsController::class, 'export'])
+    ->name('contacts.export')
+    ->middleware('auth');
+
 Route::post('contacts', [ContactsController::class, 'store'])
     ->name('contacts.store')
     ->middleware('auth');

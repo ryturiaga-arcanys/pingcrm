@@ -11,6 +11,10 @@
           <option value="only">Only Trashed</option>
         </select>
       </search-filter>
+      <a class="btn-indigo mr-4" :href="exportUrl">
+        <icon name="download" class="w-4 h-4 fill-white" />
+        <span class="hidden md:inline">&nbsp;Export</span>
+      </a>
       <Link class="btn-indigo" href="/contacts/create">
         <span>Create</span>
         <span class="hidden md:inline">&nbsp;Contact</span>
@@ -105,6 +109,13 @@ export default {
   methods: {
     reset() {
       this.form = mapValues(this.form, () => null)
+    },
+  },
+  computed: {
+    exportUrl() {
+      const query = new URLSearchParams(pickBy(this.form)).toString()
+
+      return query ? `/contacts/export?${query}` : '/contacts/export'
     },
   },
 }
