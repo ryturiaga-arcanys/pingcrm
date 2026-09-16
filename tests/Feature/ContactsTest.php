@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Account;
+use App\Models\Contact;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -129,5 +130,104 @@ class ContactsTest extends TestCase
                 ->where('contacts.data.0.name', 'Martin Abbott')
                 ->where('contacts.data.1.name', 'Lynn Kub')
             );
+    }
+
+    public function test_guests_cannot_export_contacts(): void
+    {
+        $this->get('/contacts/export')
+            ->assertRedirect('/login');
+    }
+
+    public function test_can_export_contacts_as_csv(): void
+    {
+        $response = $this->actingAs($this->user)->get('/contacts/export');
+
+        $response->assertOk();
+        $this->assertStringStartsWith('text/csv', $response->headers->get('content-type'));
+
+        $disposition = $response->headers->get('content-disposition');
+        $this->assertStringContainsString('attachment', $disposition);
+        $this->assertStringContainsString('.csv', $disposition);
+    }
+
+    public function test_exported_csv_contains_expected_contact_rows(): void
+    {
+        $response = $this->actingAs($this->user)->get('/contacts/export');
+
+        $rows = $this->csvRows($response);
+
+        $this->assertSame([
+            'First Name', 'Last Name', 'Email', 'Phone', 'Address', 'City', 'Region', 'Country', 'Postal Code', 'Organization',
+        ], $rows[0]);
+
+        $this->assertCount(3, $rows);
+        $this->assertSame([
+            'Martin', 'Abbott', 'martin.abbott@example.com', '555-111-2222', '330 Glenda Shore', 'Murphyland', 'Tennessee', 'US', '57851', 'Example Organization Inc.',
+        ], $rows[1]);
+        $this->assertSame([
+            'Lynn', 'Kub', 'lynn.kub@example.com', '555-333-4444', '199 Connelly Turnpike', 'Woodstock', 'Colorado', 'US', '11623', 'Example Organization Inc.',
+        ], $rows[2]);
+    }
+
+    public function test_export_respects_search_filter(): void
+    {
+        $response = $this->actingAs($this->user)->get('/contacts/export?search=Martin');
+
+        $rows = $this->csvRows($response);
+
+        $this->assertCount(2, $rows);
+        $this->assertSame('Martin', $rows[1][0]);
+    }
+
+    public function test_export_excludes_trashed_contacts_by_default(): void
+    {
+        $this->user->account->contacts()->firstWhere('first_name', 'Martin')->delete();
+
+        $rows = $this->csvRows($this->actingAs($this->user)->get('/contacts/export'));
+
+        $this->assertCount(2, $rows);
+        $this->assertSame('Lynn', $rows[1][0]);
+    }
+
+    public function test_export_includes_trashed_contacts_when_filtered(): void
+    {
+        $this->user->account->contacts()->firstWhere('first_name', 'Martin')->delete();
+
+        $rows = $this->csvRows($this->actingAs($this->user)->get('/contacts/export?trashed=only'));
+
+        $this->assertCount(2, $rows);
+        $this->assertSame('Martin', $rows[1][0]);
+    }
+
+    public function test_export_does_not_include_contacts_from_other_accounts(): void
+    {
+        $otherAccount = Account::create(['name' => 'Other Company Inc.']);
+        $otherAccount->contacts()->create([
+            'first_name' => 'Other',
+            'last_name' => 'Account',
+            'email' => 'other.account@example.com',
+        ]);
+
+        $rows = $this->csvRows($this->actingAs($this->user)->get('/contacts/export'));
+
+        $this->assertCount(3, $rows);
+        $this->assertSame(['Martin', 'Lynn'], [$rows[1][0], $rows[2][0]]);
+    }
+
+    public function test_export_includes_all_matching_rows_beyond_pagination_limit(): void
+    {
+        Contact::factory()->count(15)->create(['account_id' => $this->user->account_id]);
+
+        $rows = $this->csvRows($this->actingAs($this->user)->get('/contacts/export'));
+
+        // header + 2 originally seeded contacts + 15 factory-created contacts
+        $this->assertCount(18, $rows);
+    }
+
+    private function csvRows($response): array
+    {
+        $lines = array_filter(explode("\n", trim($response->streamedContent())));
+
+        return array_map('str_getcsv', $lines);
     }
 }
